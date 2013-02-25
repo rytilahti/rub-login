@@ -1,23 +1,36 @@
 #!/usr/bin/env ruby
 require 'rubygems'
 require 'mechanize'
-require 'net/ping'
 
-settings = {"user" => 'LOGINID',
-         "password" => 'PASSWORD',
-         "ping_ip" => '10.0.20.1'
+$settings = {
+    "user" => 'LOGINID',
+    "password" => 'PASSWORD',
+    "gateway_ip" => '10.0.20.1',
+    "connectivity_ip" => '8.8.8.8',
+    "disable_network_checks" => false,
 }
 
+begin
+    require 'net/ping'
+rescue LoadError
+    puts "RUB: net/ping not installed, skipping network checks.."
+    settings["disable_network_checks"] = true
+end
+
+# when launching over nm-dispatcher..
 iface = ARGV[0]
 state = ARGV[1]
-
 def got_root?
     return Process.uid == 0
 end
 
 def check_network(ip)
+    return true unless got_root?
+    return true if $settings['disable_network_checks']
     pt = Net::Ping::ICMP.new(ip)
-    return pt.ping?
+    pt.timeout = 1
+    res = pt.ping?
+    return res
 end
 
 def do_login(username, password)
@@ -41,15 +54,15 @@ def do_login(username, password)
 end
 
 if ARGV.length < 2 or state == "up"
-    if got_root? and check_network('8.8.8.8') then
+    if check_network($settings['connectivity_ip']) then
         # we don't need to login, if network is already up..
         puts "RUB: Already logged in / network reachable"
         Kernel.exit
     end
-    if not got_root? or check_network(settings['ping_ip'])
-        do_login(settings['user'], settings['password'])
+    if check_network($settings['gateway_ip'])
+        do_login($settings['user'], $settings['password'])
     else
-        puts "RUB: Not in RUB network, #{settings['ping_ip']} unreachable.."
+        puts "RUB: Not in RUB network, #{$settings['gateway_ip']} unreachable.."
     end
 end
 
