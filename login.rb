@@ -25,9 +25,12 @@ def got_root?
 end
 
 def check_network(ip)
-    return true unless got_root?
     return true if $settings['disable_network_checks']
-    pt = Net::Ping::ICMP.new(ip)
+    if got_root? then
+        pt = Net::Ping::ICMP.new(ip)
+    else
+        pt = Net::Ping::External.new(ip)
+    end
     pt.timeout = 1
     res = pt.ping?
     return res
