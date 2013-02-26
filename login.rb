@@ -4,8 +4,8 @@ require 'mechanize'
 require 'logger'
 
 settings = {
-    "user" => 'LOGINID',
-    "password" => 'PASSWORD',
+    "username" => 'CHANGEME',
+    "password" => 'CHANGEME',
     "gateway_ip" => '10.0.20.1',
     "connectivity_ip" => '8.8.8.8',
     "disable_network_checks" => false,
@@ -21,8 +21,6 @@ end
 
 module RUB
     class Login
-        attr_accessor :username
-        attr_accessor :password
         attr_reader :ip
         attr_writer :logger
         attr_accessor :settings
@@ -34,21 +32,25 @@ module RUB
         end
 
         def login
-            if check_network(@settings['connectivity_ip']) then
-                @error = "Already connected"
-                return false
-            elsif not check_network(@settings['gateway_ip']) then
-                @error = "Not in RUB network"
-                return false
+            unless @settings['disable_network_checks'] then
+                if check_network(@settings['connectivity_ip']) then
+                    @error = "Already connected"
+                    return false
+                elsif not check_network(@settings['gateway_ip']) then
+                    @error = "Not in RUB network"
+                    return false
+                end
+            else
+                @logger.info("Network checks disabled.")
             end
 
             a = Mechanize.new
             a.get('https://login.rz.ruhr-uni-bochum.de/index.html') do |page|
                 login_page = page.link_with(:href => /start$/).click
                 result_page = login_page.form_with(:name => 'loginbox') do |form|
-                    form['loginid'] = @username
-                    form['password'] = @password
-                    @logger.debug("RUB: Trying to connect with user '#{@username}', ip: #{form['ipaddr']}")
+                    form['loginid'] = @settings['username']
+                    form['password'] = @settings['password']
+                    @logger.debug("RUB: Trying to connect with user '#{@settings['username']}', ip: #{form['ipaddr']}")
                     submit = form.button_with(:value => /Login/)
                     result = form.submit(submit)
                     success = result.body.include?('Authentisierung gelungen')
@@ -86,6 +88,10 @@ module RUB
     end
 end
 
+if settings['username'] == "CHANGEME" or settings['password'] == "CHANGEME"
+    puts "Set your username and/or password first!"
+    exit
+end
 
 # when launching over nm-dispatcher..
 iface = ARGV[0]
@@ -93,10 +99,7 @@ state = ARGV[1]
 
 nolog = Logger.new(StringIO.new)
 rub = RUB::Login.new(nolog)
-rub.username = settings['user']
-rub.password = settings['password']
 rub.settings = settings
-
 
 if ARGV.length < 2 or state == "up"
     if rub.login() then
