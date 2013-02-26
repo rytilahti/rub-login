@@ -13,3 +13,9 @@ try to do the login.
 # Requirements
 - Mechanize
 - net/ping (optional)
+
+# Author
+Teemu Rytilahti
+
+# License
+GPLv3
