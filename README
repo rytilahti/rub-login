@@ -1,0 +1,15 @@
+# RUB-Login
+A simple Ruby script to login to the university network used in Akafö accomodation of Ruhr-Universität Bochum. 
+
+# Usage
+The easiest way to use it is just to replace the username and password fields in the settings hash to your loginid of the network.
+After that just running the script will do the login.
+
+The script can also be used together with NetworkManager, to login automatically when the computer is connected to the network.
+To do that just copy the script to /etc/NetworkManager/dispatcher.d/ and make root user to be its owner. When a network
+interface has gone up, the script will check whether we are in the correct network (by pinging the gateway ip), and will then
+try to do the login.
+
+# Requirements
+- Mechanize
+- net/ping (optional)
