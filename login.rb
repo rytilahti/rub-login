@@ -1,13 +1,15 @@
 #!/usr/bin/env ruby
 require 'rubygems'
 require 'mechanize'
+require 'logger'
 
-$settings = {
+settings = {
     "user" => 'LOGINID',
     "password" => 'PASSWORD',
     "gateway_ip" => '10.0.20.1',
     "connectivity_ip" => '8.8.8.8',
     "disable_network_checks" => false,
+    "ping_timeout" => 0.5,
 }
 
 begin
@@ -17,55 +19,90 @@ rescue LoadError
     settings["disable_network_checks"] = true
 end
 
-# when launching over nm-dispatcher..
-iface = ARGV[0]
-state = ARGV[1]
-def got_root?
-    return Process.uid == 0
-end
+module RUB
+    class Login
+        attr_accessor :username
+        attr_accessor :password
+        attr_reader :ip
+        attr_writer :logger
+        attr_accessor :settings
+        attr_reader :error
 
-def check_network(ip)
-    return true if $settings['disable_network_checks']
-    if got_root? then
-        pt = Net::Ping::ICMP.new(ip)
-    else
-        pt = Net::Ping::External.new(ip)
-    end
-    pt.timeout = 1
-    res = pt.ping?
-    return res
-end
+        def initialize(logger = nil)
+            @logger = logger
+            @logger ||= Logger.new(STDOUT)
+        end
 
-def do_login(username, password)
-    a = Mechanize.new
-    a.get('https://login.rz.ruhr-uni-bochum.de/index.html') do |page|
-        login_page = page.link_with(:href => /start$/).click
-        result_page = login_page.form_with(:name => 'loginbox') do |form|
-            form['loginid'] = username
-            form['password'] = password
-            #puts "Trying to connect with user '#{username}', ip: #{form['ipaddr']}"    
-            submit = form.button_with(:value => /Login/)
-            result = form.submit(submit)
-            success = result.body.include?('Authentisierung gelungen')
-            unless success
-                puts "RUB: Login failed"
-                Kernel.exit
+        def login
+            if check_network(@settings['connectivity_ip']) then
+                @error = "Already connected"
+                return false
+            elsif not check_network(@settings['gateway_ip']) then
+                @error = "Not in RUB network"
+                return false
             end
-        puts "RUB: Logged in succesfully"
+
+            a = Mechanize.new
+            a.get('https://login.rz.ruhr-uni-bochum.de/index.html') do |page|
+                login_page = page.link_with(:href => /start$/).click
+                result_page = login_page.form_with(:name => 'loginbox') do |form|
+                    form['loginid'] = @username
+                    form['password'] = @password
+                    @logger.debug("RUB: Trying to connect with user '#{@username}', ip: #{form['ipaddr']}")
+                    submit = form.button_with(:value => /Login/)
+                    result = form.submit(submit)
+                    success = result.body.include?('Authentisierung gelungen')
+                    unless success
+                        @logger.warn("RUB: Login failed")
+                        @error = "Login failed, wrong username/password"
+                        return false
+                    end
+                    @ip = form['ipaddr']
+                    @logger.info("RUB: Logged in succesfully")
+                    return true
+                end
+            end
+        end
+
+        private
+        def check_network(ip)
+            @logger.debug("Pinging #{ip}")
+            if got_root? then
+                pt = Net::Ping::ICMP.new(ip)
+            else
+                pt = Net::Ping::External.new(ip)
+            end
+
+            pt.timeout = @settings['ping_timeout']
+            res = pt.ping?
+            @logger.warn("Error while pinging: #{pt.exception}") unless res
+
+            return res
+        end
+
+        def got_root?
+            return Process.uid == 0
         end
     end
 end
 
+
+# when launching over nm-dispatcher..
+iface = ARGV[0]
+state = ARGV[1]
+
+nolog = Logger.new(StringIO.new)
+rub = RUB::Login.new(nolog)
+rub.username = settings['user']
+rub.password = settings['password']
+rub.settings = settings
+
+
 if ARGV.length < 2 or state == "up"
-    if check_network($settings['connectivity_ip']) then
-        # we don't need to login, if network is already up..
-        puts "RUB: Already logged in / network reachable"
-        Kernel.exit
-    end
-    if check_network($settings['gateway_ip'])
-        do_login($settings['user'], $settings['password'])
+    if rub.login() then
+        puts "RUB: Connected, local ip: #{rub.ip}"
     else
-        puts "RUB: Not in RUB network, #{$settings['gateway_ip']} unreachable.."
+        puts "RUB: Connection failed, reason: #{rub.error}"
     end
 end
 
